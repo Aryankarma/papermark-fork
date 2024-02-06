@@ -6,11 +6,11 @@ import NotFound from "@/pages/404";
 import { GetStaticPropsContext } from "next";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/router";
-import prisma from "@/lib/prisma";
-
 import { ExtendedRecordMap } from "notion-types";
 import notion from "@/lib/notion";
 import { parsePageId } from "notion-utils";
+import { Brand } from "@prisma/client";
+import CustomMetatag from "@/components/view/custom-metatag";
 
 export const getStaticProps = async (context: GetStaticPropsContext) => {
   const { domain, slug } = context.params as { domain: string; slug: string };
@@ -24,7 +24,10 @@ export const getStaticProps = async (context: GetStaticPropsContext) => {
   if (!res.ok) {
     return { notFound: true };
   }
-  const link = (await res.json()) as LinkWithDocument;
+  const { link, brand } = (await res.json()) as {
+    link: LinkWithDocument;
+    brand: Brand | null;
+  };
 
   let pageId = null;
   let recordMap = null;
@@ -59,6 +62,13 @@ export const getStaticProps = async (context: GetStaticPropsContext) => {
         rootNotionPageId: pageId,
         recordMap,
       },
+      meta: {
+        enableCustomMetatag: link.enableCustomMetatag || false,
+        metaTitle: link.metaTitle,
+        metaDescription: link.metaDescription,
+        metaImage: link.metaImage,
+      },
+      brand, // pass the brand to client
     },
     revalidate: 10,
   };
@@ -74,21 +84,43 @@ export async function getStaticPaths() {
 export default function ViewPage({
   link,
   notionData,
+  meta,
+  brand,
 }: {
   link: LinkWithDocument;
   notionData: {
     rootNotionPageId: string | null;
     recordMap: ExtendedRecordMap | null;
   };
+  meta: {
+    enableCustomMetatag: boolean;
+    metaTitle: string | null;
+    metaDescription: string | null;
+    metaImage: string | null;
+  } | null;
+  brand?: Brand;
 }) {
-  const router = useRouter();
   const { data: session, status } = useSession();
+  const router = useRouter();
+  const { token, email: verifiedEmail } = router.query as {
+    token: string;
+    email: string;
+  };
 
-  if (!link || status === "loading" || router.isFallback) {
+  if (!link || status === "loading") {
     return (
-      <div className="h-screen flex items-center justify-center">
-        <LoadingSpinner className="h-20 w-20" />
-      </div>
+      <>
+        {meta && meta.enableCustomMetatag ? (
+          <CustomMetatag
+            title={meta.metaTitle}
+            description={meta.metaDescription}
+            imageUrl={meta.metaImage}
+          />
+        ) : null}
+        <div className="h-screen flex items-center justify-center">
+          <LoadingSpinner className="h-20 w-20" />
+        </div>
+      </>
     );
   }
 
@@ -114,25 +146,49 @@ export default function ViewPage({
     );
   }
 
+  const { enableCustomMetatag, metaTitle, metaDescription, metaImage } = link;
+
   if (emailProtected || linkPassword) {
     return (
-      <DocumentView
-        link={link}
-        userEmail={userEmail}
-        userId={userId}
-        isProtected={true}
-        notionData={notionData}
-      />
+      <>
+        {enableCustomMetatag ? (
+          <CustomMetatag
+            title={metaTitle}
+            description={metaDescription}
+            imageUrl={metaImage}
+          />
+        ) : null}
+        <DocumentView
+          link={link}
+          userEmail={userEmail}
+          userId={userId}
+          isProtected={true}
+          notionData={notionData}
+          brand={brand}
+          token={token}
+          verifiedEmail={verifiedEmail}
+        />
+      </>
     );
   }
 
   return (
-    <DocumentView
-      link={link}
-      userEmail={userEmail}
-      userId={userId}
-      isProtected={false}
-      notionData={notionData}
-    />
+    <>
+      {enableCustomMetatag ? (
+        <CustomMetatag
+          title={metaTitle}
+          description={metaDescription}
+          imageUrl={metaImage}
+        />
+      ) : null}
+      <DocumentView
+        link={link}
+        userEmail={userEmail}
+        userId={userId}
+        isProtected={false}
+        notionData={notionData}
+        brand={brand}
+      />
+    </>
   );
 }
